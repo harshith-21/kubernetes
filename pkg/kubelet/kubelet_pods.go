@@ -1669,16 +1669,10 @@ func (kl *Kubelet) GetKubeletContainerLogs(ctx context.Context, podFullName, con
 		return err
 	}
 
-	// Since v1.32, stdout may be nil if the stream is not requested.
-	if stdout != nil {
-		// Do a zero-byte write to stdout before handing off to the container runtime.
-		// This ensures at least one Write call is made to the writer when copying starts,
-		// even if we then block waiting for log output from the container.
-		if _, err := stdout.Write([]byte{}); err != nil {
-			return err
-		}
-	}
-
+	// Don't write to stdout here - validateContainerLogStatus only checked the cached
+	// pod status, so the container could still be gone from the runtime, and the
+	// first write - even a zero-byte one - commits the response to a 200. Leave that
+	// to the runtime, once it actually knows the log source is real.
 	return kl.containerRuntime.GetContainerLogs(ctx, pod, containerID, logOptions, stdout, stderr)
 }
 

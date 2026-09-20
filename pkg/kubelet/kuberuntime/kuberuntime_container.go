@@ -1308,12 +1308,25 @@ func (m *kubeGenericRuntimeManager) GetContainerLogs(ctx context.Context, pod *v
 	resp, err := m.runtimeService.ContainerStatus(ctx, containerID.ID, false)
 	if err != nil {
 		logger.V(4).Info("Failed to get container status", "containerID", containerID.String(), "err", err)
-		return fmt.Errorf("unable to retrieve container logs for %v", containerID.String())
+		// Keep the prefix stable, e2e helpers grep for it. Wrapping the error lets
+		// callers tell a missing container apart from an unreachable runtime.
+		return fmt.Errorf("unable to retrieve container logs for %v: %w", containerID.String(), err)
 	}
 	status := resp.GetStatus()
 	if status == nil {
 		return remote.ErrContainerStatusNil
 	}
+
+	// Follow mode can block for a while waiting on output, so flush headers now with
+	// a zero-byte write - but only now that the lookup above has actually succeeded,
+	// since this write commits the response to 200 with no way back.
+	// stdout can be nil since v1.32 if that stream wasn't requested.
+	if logOptions.Follow && stdout != nil {
+		if _, err := stdout.Write([]byte{}); err != nil {
+			return err
+		}
+	}
+
 	return m.ReadLogs(ctx, status.GetLogPath(), containerID.ID, logOptions, stdout, stderr)
 }
 
